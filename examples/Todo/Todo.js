@@ -205,8 +205,72 @@ App.state = new O.Router({
     todos: function () {
         var listId = this.get( 'listId' ),
             search = this.get( 'search' ),
-            searchRegExp = search ?
-                new RegExp( '\\b' + search.escapeRegExp(), 'i' ) : null;
+            andTerm = O.Parse.define( 'and_term', /^[^\s]+/ ),
+            whitespace = O.Parse.define( 'whitespace', /^(?:\s+)/ ),
+
+            doneString = "done",
+            notDoneString = "notdone",
+            donePrefix = O.Parse.define( 'done_prefix', /^is:/ ),
+            doneValue = O.Parse.define( 'done_value', new RegExp("^(" + doneString + "|" + notDoneString + ")") ),
+
+            done = O.Parse.sequence([
+                donePrefix,
+                O.Parse.optional(whitespace),
+                doneValue
+            ]),
+
+            andTerms = O.Parse.firstMatch([
+                done,
+                andTerm,
+                whitespace
+            ]),
+
+            or = O.Parse.define( 'or', /^OR/i ),
+            orTerm = O.Parse.define( 'or_term', /^[^\s]+/ ),
+            orTerms = O.Parse.firstMatch([done, orTerm, whitespace]),
+            orSeqStart = O.Parse.sequence([
+                orTerms,
+                whitespace,
+                or,
+                whitespace
+            ]),
+            orSeqEnd = O.Parse.sequence([
+                O.Parse.repeat(orSeqStart, 1),
+                orTerms
+            ]),
+            orSeq = O.Parse.longestMatch([orSeqEnd]),
+            parser = O.Parse.longestMatch([orSeq, andTerms]),
+            tokenType = function(tokens, type) {
+                var returnTokens = tokens.filter( function(token) {
+                    return token[0] === type;
+                } );
+
+                return returnTokens;
+            },
+
+            wordsMatch = function(tokens, searchCandidate) {
+                for( var wordIndex = 0; wordIndex < tokens.length; wordIndex += 1) {
+                    // TODO(yuri): Possibly make prefixes of is:done and
+                    // is:notdone return true?
+                    if ( searchCandidate.indexOf( tokens[wordIndex][1] )  === -1 ) {
+                        return false;
+                    }
+                }
+                return true;
+            },
+
+            doneStateMatch = function(tokens, isComplete) {
+                if( tokens.length ) {
+                    // NOTE(yuri): Take the first is:done/is:notdone
+                    if ( tokens[0][1] === doneString && !isComplete ) {
+                        return false;
+                    } else if ( tokens[0][1] === notDoneString && isComplete) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+
         return new O.LiveQuery({
             store: App.store,
             Type: Todo,
@@ -215,8 +279,66 @@ App.state = new O.Router({
                     ( a.id < b.id ? -1 : a.id > b.id ? 1 : 0 );
             },
             filter: function ( data ) {
-                return ( data.listId === listId ) &&
-                    ( !searchRegExp || searchRegExp.test( data.summary ) );
+                if ( data.listId !== listId ) {
+                    return false;
+                }
+
+                var searchCandidate = data.summary.toLowerCase();
+                var parse = new O.Parse(search);
+
+                while(parse.string.length) {
+                    parser(parse);
+
+                    // NOTE(yuri): Filter out unused tokens
+                    parse.tokens = parse.tokens.filter(function(token) {
+                        return token[0] !== 'whitespace' && token[0] !== 'done_prefix';
+                    });
+
+                    parse.tokens.forEach(function(token) { token[1] = token[1].toLowerCase(); });
+
+                    // NOTE(yuri): When we come across a token of interest, we
+                    // process it and empty out the tokens so that we're only
+                    // dealing with one condition at a time
+                    // TODO(yuri): When implementing NOT, use a variable to
+                    // keep track of result instead of short-ciruting logic
+                    // with returns
+                    var orTokens = tokenType( parse.tokens, 'or' );
+                    if ( tokenType( parse.tokens, 'or' ).length ) {
+                        orTokens = parse.tokens.filter(function(token) { return token[0] !== 'or'; });
+                        parse.tokens = [];
+
+                        var orResult = orTokens.reduce(function(memo, token) {
+                            if ( token[0] === 'or_term' ) {
+                                memo = memo || wordsMatch([token], searchCandidate);
+                            } else if ( token[0] === 'done_value' ) {
+                                memo = memo || doneStateMatch([token], data.isComplete);
+                            }
+                            return memo;
+                        }, false);
+
+                        if (!orResult) { return false; }
+                    }
+
+                    var andTokens = tokenType( parse.tokens, 'and_term' );
+                    if ( andTokens.length ) {
+                        parse.tokens = [];
+
+                        if ( !wordsMatch( andTokens, searchCandidate ) ) {
+                            return false;
+                        }
+                    }
+
+                    var doneTokens = tokenType( parse.tokens, 'done_value' );
+                    if ( doneTokens.length ) {
+                        parse.tokens = [];
+
+                        if ( !doneStateMatch( doneTokens, data.isComplete ) ) {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
             }
         });
     }.property( 'listId', 'search' ),
