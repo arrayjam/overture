@@ -208,14 +208,14 @@ App.state = new O.Router({
             andTerm = O.Parse.define( 'and_term', /^[^\s]+/ ),
             whitespace = O.Parse.define( 'whitespace', /^(?:\s+)/ ),
 
-            doneString = "done",
-            notDoneString = "notdone",
+            doneString = 'done',
+            notDoneString = 'notdone',
             donePrefix = O.Parse.define( 'done_prefix', /^is:/ ),
-            doneValue = O.Parse.define( 'done_value', new RegExp("^(" + doneString + "|" + notDoneString + ")") ),
+            doneValue = O.Parse.define( 'done_value', new RegExp( '^(' + doneString + '|' + notDoneString + ')' ) ),
 
             done = O.Parse.sequence([
                 donePrefix,
-                O.Parse.optional(whitespace),
+                O.Parse.optional( whitespace ),
                 doneValue
             ]),
 
@@ -227,7 +227,11 @@ App.state = new O.Router({
 
             or = O.Parse.define( 'or', /^OR/i ),
             orTerm = O.Parse.define( 'or_term', /^[^\s]+/ ),
-            orTerms = O.Parse.firstMatch([done, orTerm, whitespace]),
+            orTerms = O.Parse.firstMatch([
+                done,
+                orTerm,
+                whitespace
+            ]),
             orSeqStart = O.Parse.sequence([
                 orTerms,
                 whitespace,
@@ -235,21 +239,21 @@ App.state = new O.Router({
                 whitespace
             ]),
             orSeqEnd = O.Parse.sequence([
-                O.Parse.repeat(orSeqStart, 1),
+                O.Parse.repeat( orSeqStart, 1 ),
                 orTerms
             ]),
-            orSeq = O.Parse.longestMatch([orSeqEnd]),
-            parser = O.Parse.longestMatch([orSeq, andTerms]),
-            tokenType = function(tokens, type) {
-                var returnTokens = tokens.filter( function(token) {
+            orSeq = O.Parse.longestMatch([ orSeqEnd ]),
+            parser = O.Parse.longestMatch([ orSeq, andTerms ]),
+            tokenType = function ( tokens, type ) {
+                var returnTokens = tokens.filter( function ( token ) {
                     return token[0] === type;
                 } );
 
                 return returnTokens;
             },
 
-            wordsMatch = function(tokens, searchCandidate) {
-                for( var wordIndex = 0; wordIndex < tokens.length; wordIndex += 1) {
+            wordsMatch = function ( tokens, searchCandidate ) {
+                for( var wordIndex = 0; wordIndex < tokens.length; wordIndex += 1 ) {
                     // TODO(yuri): Possibly make prefixes of is:done and
                     // is:notdone return true?
                     if ( searchCandidate.indexOf( tokens[wordIndex][1] )  === -1 ) {
@@ -259,12 +263,12 @@ App.state = new O.Router({
                 return true;
             },
 
-            doneStateMatch = function(tokens, isComplete) {
+            doneStateMatch = function ( tokens, isComplete ) {
                 if( tokens.length ) {
                     // NOTE(yuri): Take the first is:done/is:notdone
                     if ( tokens[0][1] === doneString && !isComplete ) {
                         return false;
-                    } else if ( tokens[0][1] === notDoneString && isComplete) {
+                    } else if ( tokens[0][1] === notDoneString && isComplete ) {
                         return false;
                     }
                 }
@@ -284,17 +288,17 @@ App.state = new O.Router({
                 }
 
                 var searchCandidate = data.summary.toLowerCase();
-                var parse = new O.Parse(search);
+                var parse = new O.Parse( search );
 
-                while(parse.string.length) {
-                    parser(parse);
+                while( parse.string.length ) {
+                    parser( parse );
 
                     // NOTE(yuri): Filter out unused tokens
-                    parse.tokens = parse.tokens.filter(function(token) {
+                    parse.tokens = parse.tokens.filter( function ( token ) {
                         return token[0] !== 'whitespace' && token[0] !== 'done_prefix';
                     });
 
-                    parse.tokens.forEach(function(token) { token[1] = token[1].toLowerCase(); });
+                    parse.tokens.forEach( function ( token ) { token[1] = token[1].toLowerCase(); });
 
                     // NOTE(yuri): When we come across a token of interest, we
                     // process it and empty out the tokens so that we're only
@@ -304,19 +308,19 @@ App.state = new O.Router({
                     // with returns
                     var orTokens = tokenType( parse.tokens, 'or' );
                     if ( tokenType( parse.tokens, 'or' ).length ) {
-                        orTokens = parse.tokens.filter(function(token) { return token[0] !== 'or'; });
+                        orTokens = parse.tokens.filter( function ( token ) { return token[0] !== 'or'; } );
                         parse.tokens = [];
 
-                        var orResult = orTokens.reduce(function(memo, token) {
+                        var orResult = orTokens.reduce( function ( memo, token ) {
                             if ( token[0] === 'or_term' ) {
-                                memo = memo || wordsMatch([token], searchCandidate);
+                                memo = memo || wordsMatch( [token], searchCandidate );
                             } else if ( token[0] === 'done_value' ) {
-                                memo = memo || doneStateMatch([token], data.isComplete);
+                                memo = memo || doneStateMatch( [token], data.isComplete );
                             }
                             return memo;
-                        }, false);
+                        }, false );
 
-                        if (!orResult) { return false; }
+                        if ( !orResult ) { return false; }
                     }
 
                     var andTokens = tokenType( parse.tokens, 'and_term' );
